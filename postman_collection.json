@@ -80,6 +80,69 @@
           "path": ["sample", "fail"]
         }
       }
+    },
+    {
+      "name": "Timeout (Idempotency Demo - First Request)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "x-idempotency-key", "value": "idem-timeout-1", "type": "text" },
+          { "key": "x-tracing-id", "value": "trace-555", "type": "text" }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/sample/timeout",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["sample", "timeout"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status is TIMEDOUT\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql('TIMEDOUT');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Timeout (Idempotency Demo - Retry, Should Serve Cached Response)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "x-idempotency-key", "value": "idem-timeout-1", "type": "text" },
+          { "key": "x-tracing-id", "value": "trace-555", "type": "text" }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/sample/timeout",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["sample", "timeout"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status is TIMEDOUT (from cache)\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql('TIMEDOUT');",
+              "    pm.expect(pm.response.headers.has('x-idempotency-cache-hit')).to.be.true;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
     }
   ]
 }

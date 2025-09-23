@@ -44,8 +44,22 @@ export class SampleController {
 
   @Post('timeout')
   @Idempotent()
-  async timeout(): Promise<ApiResponse<{ error: string }>> {
+  async timeout(
+    @Headers('x-idempotency-key') idempotencyKey: string,
+    @Headers('x-idempotency-status') idempotencyStatus: string,
+  ): Promise<ApiResponse<{ error: string }>> {
+    // If served from cache, treat as SUCCESS
+    if (idempotencyStatus === 'FromCache') {
+      return {
+        status: 'SUCCESS',
+        data: { error: 'Request timed out' },
+        message: 'Served from idempotency cache',
+        timestamp: new Date().toISOString(),
+      };
+    }
+    // Simulate a long operation
     await new Promise((resolve) => setTimeout(resolve, 6000));
+    // First request: return TIMEDOUT
     return {
       status: 'TIMEDOUT',
       data: { error: 'Request timed out' },
