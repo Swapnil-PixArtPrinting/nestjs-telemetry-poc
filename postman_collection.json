@@ -1,0 +1,85 @@
+{
+  "info": {
+    "_postman_id": "nestjs-telemetry-poc-collection",
+    "name": "NestJS Telemetry POC",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Ping (Tracing Only)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-tracing-id", "value": "trace-123", "type": "text" }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/sample/ping",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["sample", "ping"]
+        }
+      }
+    },
+    {
+      "name": "Echo (Idempotent, Tracing)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "x-idempotency-key", "value": "idem-abc-1", "type": "text" },
+          { "key": "x-tracing-id", "value": "trace-456", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"foo\": \"bar\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "http://localhost:3000/sample/echo",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["sample", "echo"]
+        }
+      }
+    },
+    {
+      "name": "Echo (No Idempotency Key)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "x-tracing-id", "value": "trace-789", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"foo\": \"baz\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "http://localhost:3000/sample/echo",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["sample", "echo"]
+        }
+      }
+    },
+    {
+      "name": "Fail (Idempotent, Tracing)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "x-idempotency-key", "value": "idem-fail-1", "type": "text" },
+          { "key": "x-tracing-id", "value": "trace-999", "type": "text" }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/sample/fail",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["sample", "fail"]
+        }
+      }
+    }
+  ]
+}
