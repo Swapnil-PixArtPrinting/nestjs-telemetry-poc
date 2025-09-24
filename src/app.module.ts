@@ -2,8 +2,6 @@ import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { CacheModule } from '@nestjs/cache-manager';
 import { ConfigModule } from '@nestjs/config';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { SampleModule } from './sample/sample.module';
 import { IdempotencyInterceptor } from './common/idempotency.interceptor';
 import { TracingInterceptor } from './common/tracing.interceptor';
@@ -25,9 +23,7 @@ import { Reflector } from '@nestjs/core';
     }),
     SampleModule,
   ],
-  controllers: [AppController],
   providers: [
-    AppService,
     Reflector,
     {
       provide: APP_INTERCEPTOR,

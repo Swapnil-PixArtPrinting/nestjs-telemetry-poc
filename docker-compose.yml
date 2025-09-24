@@ -7,10 +7,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       REDIS_HOST: redis
       REDIS_PORT: 6380
-    command: npm run start:dev
+    command: npm run start:prod
     depends_on:
       - redis
     volumes:

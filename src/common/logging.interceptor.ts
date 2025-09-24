@@ -148,7 +148,7 @@ export class LoggingInterceptor implements NestInterceptor {
     };
     this.logger.log(JSON.stringify(entry));
     return next.handle().pipe(
-      tap(() => {
+      tap((responseData) => {
         clearTimeout(timeoutId);
         const ms = Date.now() - now;
         logContext.processingTimeMs = ms;
@@ -165,25 +165,23 @@ export class LoggingInterceptor implements NestInterceptor {
           cacheStatus = headers['x-idempotency-status'];
         }
         logContext.cacheStatus = cacheStatus ?? 'None';
+        let tag = 'SUCCESS';
+        if (responseData && typeof responseData.status === 'string') {
+          tag = responseData.status;
+        } else if (timedOut) {
+          tag = 'TIMEDOUT';
+        }
+        const entry: LogEntry = {
+          message: timedOut ? 'Exit after timeout' : 'Response',
+          context: sanitizeObject(logContext, SENSITIVE_HEADERS),
+          level: timedOut ? 'warn' : 'info',
+          tags: [tag],
+          timestamp: new Date().toISOString(),
+          processingTimeMs: logContext.processingTimeMs,
+        };
         if (timedOut) {
-          const entry: LogEntry = {
-            message: 'Exit after timeout',
-            context: sanitizeObject(logContext, SENSITIVE_HEADERS),
-            level: 'warn',
-            tags: ['TIMEDOUT'],
-            timestamp: new Date().toISOString(),
-            processingTimeMs: logContext.processingTimeMs,
-          };
           this.logger.warn(JSON.stringify(entry));
         } else {
-          const entry: LogEntry = {
-            message: 'Response',
-            context: sanitizeObject(logContext, SENSITIVE_HEADERS),
-            level: 'info',
-            tags: ['SUCCESS'],
-            timestamp: new Date().toISOString(),
-            processingTimeMs: logContext.processingTimeMs,
-          };
           this.logger.log(JSON.stringify(entry));
         }
       }),

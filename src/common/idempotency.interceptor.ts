@@ -71,13 +71,55 @@ export class IdempotencyInterceptor implements NestInterceptor {
       response.setHeader(IDEMPOTENCY_STATUS_HEADER, 'FromCache');
       return of(cached);
     }
-    return next.handle().pipe(
-      tap((data) => {
-        response.setHeader(IDEMPOTENCY_HEADER, idempotencyKey);
-        response.setHeader(IDEMPOTENCY_STATUS_HEADER, 'Original');
-        // Fire-and-forget cache set, do not await
-        void this.cacheManager.set(cacheKey, data, 60 * 60);
-      }),
-    );
+
+    // Enforce max wait time of 2 seconds for all idempotent actions
+    return new Observable((observer) => {
+      let settled = false;
+      let resultToCache: any = null;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          response.setHeader(IDEMPOTENCY_HEADER, idempotencyKey);
+          response.setHeader(IDEMPOTENCY_STATUS_HEADER, 'TimedOut');
+          const timedOutResponse = {
+            status: 'TIMEDOUT',
+            data: { error: 'Request timed out' },
+            message: 'Request timed out, retry with same idempotency key',
+            timestamp: new Date().toISOString(),
+          };
+          observer.next(timedOutResponse);
+          observer.complete();
+        }
+      }, 2000);
+
+      next.handle().subscribe({
+        next: (data) => {
+          resultToCache = data;
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeout);
+            response.setHeader(IDEMPOTENCY_HEADER, idempotencyKey);
+            response.setHeader(IDEMPOTENCY_STATUS_HEADER, 'Original');
+            observer.next(data);
+            observer.complete();
+            // Cache the result immediately if within timeout
+            void this.cacheManager.set(cacheKey, data, 60 * 60);
+          }
+        },
+        error: (err) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeout);
+            observer.error(err);
+          }
+        },
+        complete: () => {
+          // If result arrived after timeout, cache it for future requests
+          if (resultToCache && settled) {
+            void this.cacheManager.set(cacheKey, resultToCache, 60 * 60);
+          }
+        },
+      });
+    });
   }
 }

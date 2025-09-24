@@ -32,9 +32,16 @@
 This solution implements:
 - **Idempotency**: Custom decorator and interceptor, caches responses, generates keys if not provided, sets headers.
 - **Tracing**: Nginx reverse proxy generates and forwards `x-tracing-id` to the app; TracingInterceptor logs and propagates traceId.
-- **Logging & Telemetry**: LoggingInterceptor logs entry, exit, error, timeout, request processing time, cache hits/misses, and sanitizes sensitive headers.
-- **Response Structure**: All endpoints return `{ status: 'SUCCESS' | 'FAILED' | 'TIMEDOUT', data, ... }`.
+- **Logging & Telemetry**: LoggingInterceptor logs entry, exit, error, timeout, request processing time, cache hits/misses, and sanitizes sensitive headers. Log tags now reflect actual response status (`SUCCESS`, `FAILED`, `TIMEDOUT`).
+- **Response Structure**: All endpoints use a shared utility (`buildApiResponse`) for standardized responses: `{ status: 'SUCCESS' | 'FAILED' | 'TIMEDOUT', data, ... }`.
 - **Sensitive Data Removal**: Logs sanitize headers like authorization, api-key, cookie, token, etc.
+- **Controller/Service Refactor**: Controllers and services use the shared response builder, eliminating duplication and ensuring consistency.
+
+### Redis Details
+- **Redis** is used as the backend for the cache manager, enabling fast and reliable idempotency and response caching.
+- The Redis service is defined in `docker-compose.yml` and runs as a container alongside the NestJS app.
+- The idempotency interceptor interacts with Redis to store and retrieve cached responses using generated idempotency keys.
+- Redis ensures that repeated requests with the same idempotency key return the cached response, supporting robust retry and timeout logic.
 
 ### Architecture Diagram
 ```mermaid
@@ -49,12 +56,18 @@ flowchart TD
       TRACING[TracingInterceptor]
       LOGGING[LoggingInterceptor]
       CACHE[Cache Manager]
+      REDIS[Redis]
       CONTROLLERS[Controllers]
-      APP --> IDEMPOTENCY
-      APP --> TRACING
-      APP --> LOGGING
-      IDEMPOTENCY -- "Cache responses, set headers" --> CACHE
-      CONTROLLERS -- "ApiResponse structure" --> APP
+      SERVICES[Services]
+      APIUTIL[ApiResponse Utility]
+      APP <--> CONTROLLERS
+      CONTROLLERS <--> IDEMPOTENCY
+      CONTROLLERS --> TRACING
+      CONTROLLERS -- "For every request and response" --> LOGGING
+      IDEMPOTENCY -- "Cache responses, set headers" <--> CACHE
+      CACHE <--> REDIS
+      CONTROLLERS -- "Standardized responses via ApiResponse Utility" --> APIUTIL
+      CONTROLLERS -- "Business logic" <--> SERVICES
     end
     USER[User]
     USER --> NGINX
@@ -65,16 +78,20 @@ flowchart TD
 - `nginx.conf`: Nginx reverse proxy, generates/forwards `x-tracing-id`.
 - `src/common/idempotency.interceptor.ts`: Handles idempotency logic, caching, header management.
 - `src/common/tracing.interceptor.ts`: Extracts and logs `x-tracing-id`.
-- `src/common/logging.interceptor.ts`: Logs entry/exit/error/timeout, telemetry, sanitizes sensitive headers.
-- `src/sample/sample.controller.ts`: Sample endpoints, standardized response.
+- `src/common/logging.interceptor.ts`: Logs entry/exit/error/timeout, telemetry, sanitizes sensitive headers, tags reflect response status.
+- `src/common/api-response.util.ts`: Shared utility for standardized API responses.
+- `src/sample/sample.controller.ts`: Sample endpoints, uses shared response builder.
+- `src/sample/sample.service.ts`: Business logic, uses shared response builder.
 - `docker-compose.yml`, `Dockerfile`: Container orchestration and build.
 
 ### How It Works
 1. Requests go through Nginx, which ensures every request has a `x-tracing-id` header.
 2. NestJS interceptors handle idempotency, tracing, and logging for each request.
-3. Idempotency is applied only to decorated routes; cache is used for retries/timeouts.
-4. Logs are structured, include traceId, and redact sensitive info.
-5. All responses follow the standard ApiResponse format.
+3. **Redis** is used by the idempotency interceptor to cache responses and serve repeated requests efficiently.
+4. Idempotency is applied only to decorated routes; cache is used for retries/timeouts.
+5. Logs are structured, include traceId, redact sensitive info, and tag responses by status.
+6. All responses use the shared ApiResponse utility for consistency.
+7. Controllers and services are refactored to avoid duplication and ensure maintainability.
 
 ---
 
