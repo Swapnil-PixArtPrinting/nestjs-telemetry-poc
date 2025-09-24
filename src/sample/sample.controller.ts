@@ -20,13 +20,10 @@ export class SampleController {
 
   @Post('echo')
   @Idempotent()
-  echo(
-    @Body() body: unknown,
-    @Headers('x-idempotency-key') idempotencyKey: string,
-  ): ApiResponse<{ echo: unknown; idempotencyKey: string }> {
+  echo(@Body() body: unknown): ApiResponse<{ echo: unknown }> {
     return {
       status: 'SUCCESS',
-      data: { echo: body, idempotencyKey },
+      data: { echo: body },
       timestamp: new Date().toISOString(),
     };
   }

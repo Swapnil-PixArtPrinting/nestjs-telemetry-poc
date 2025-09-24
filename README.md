@@ -58,7 +58,7 @@ flowchart TD
     end
     USER[User]
     USER --> NGINX
-    NGINX --> APP
+    APP --> NGINX
 ```
 
 ### Key Files

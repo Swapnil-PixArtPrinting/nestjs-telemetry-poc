@@ -15,6 +15,11 @@ import { Reflector } from '@nestjs/core';
     ConfigModule.forRoot({ isGlobal: true }),
     CacheModule.register({
       isGlobal: true,
+      store: 'redis',
+      host: process.env.REDIS_HOST || 'localhost',
+      port: process.env.REDIS_PORT
+        ? parseInt(process.env.REDIS_PORT, 10)
+        : 6380, // Use 6380 instead of default 6379
       ttl: 60 * 60, // 1 hour default
       max: 1000,
     }),

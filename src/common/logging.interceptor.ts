@@ -1,3 +1,25 @@
+const SENSITIVE_HEADERS = [
+  'authorization',
+  'x-api-key',
+  'api-key',
+  'cookie',
+  'set-cookie',
+  'token',
+  // Add more keys here as needed
+];
+
+function sanitizeObject(obj: any, keys: string[]): any {
+  if (!obj || typeof obj !== 'object') return obj;
+  const sanitized = Array.isArray(obj) ? [...obj] : { ...obj };
+  for (const key in sanitized) {
+    if (keys.includes(key)) {
+      sanitized[key] = '[REDACTED]';
+    } else if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
+      sanitized[key] = sanitizeObject(sanitized[key], keys);
+    }
+  }
+  return sanitized;
+}
 export interface LogContext {
   remote_addr: string | null;
   hostname: string | null;
@@ -10,7 +32,9 @@ export interface LogContext {
   store: string | null;
   channel: string | null;
   jwtEmail: string | null;
-  details?: Record<string, any>;
+  processingTimeMs: number;
+  cacheStatus: string;
+  details?: unknown;
   traceId?: string | null;
 }
 
@@ -20,6 +44,8 @@ export interface LogEntry {
   level: string;
   tags: string[];
   timestamp: string;
+  processingTimeMs?: number;
+  cacheStatus?: string;
   trace?: Record<string, any>;
 }
 import {
@@ -32,41 +58,30 @@ import {
 import { Observable } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
 
-const SENSITIVE_HEADERS = [
-  'authorization',
-  'x-api-key',
-  'api-key',
-  'cookie',
-  'set-cookie',
-  'token',
-];
-
-function sanitizeHeaders(headers: Record<string, any>): Record<string, any> {
-  const sanitized = { ...headers };
-  for (const key of SENSITIVE_HEADERS) {
-    if (sanitized[key]) {
-      sanitized[key] = '[REDACTED]';
-    }
-  }
-  return sanitized;
-}
-
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger(LoggingInterceptor.name);
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const now = Date.now();
-    const request = context.switchToHttp().getRequest<{
-      ip?: string;
-      hostname?: string;
-      method?: string;
-      originalUrl?: string;
-      url?: string;
-      body?: any;
-      headers?: Record<string, any>;
-    }>();
-    const headers = request.headers ?? {};
+    const request = context.switchToHttp().getRequest<{ [key: string]: any }>();
+    const response = context
+      .switchToHttp()
+      .getResponse<{ getHeader?: (name: string) => string }>();
+    let headers: Record<string, any> = request.headers ?? {};
+    headers = sanitizeObject(headers, SENSITIVE_HEADERS);
+    // Read idempotency status from response headers if available, else from request headers
+    let idempotencyStatus: string | undefined = undefined;
+    if (typeof response.getHeader === 'function') {
+      const val = response.getHeader('x-idempotency-status');
+      if (typeof val === 'string') idempotencyStatus = val;
+    }
+    if (
+      !idempotencyStatus &&
+      typeof headers['x-idempotency-status'] === 'string'
+    ) {
+      idempotencyStatus = headers['x-idempotency-status'];
+    }
     const traceId =
       typeof headers['x-tracing-id'] === 'string'
         ? headers['x-tracing-id']
@@ -106,8 +121,10 @@ export class LoggingInterceptor implements NestInterceptor {
         typeof headers['x-jwt-email'] === 'string'
           ? headers['x-jwt-email']
           : null,
-      details: { body: request.body },
+      details: { body: sanitizeObject(request.body, SENSITIVE_HEADERS) },
       traceId,
+      processingTimeMs: 0, // will be set later
+      cacheStatus: idempotencyStatus ?? 'None',
     };
     const TIMEOUT_MS = 5000;
     let timedOut = false;
@@ -123,10 +140,10 @@ export class LoggingInterceptor implements NestInterceptor {
       this.logger.warn(JSON.stringify(entry));
     }, TIMEOUT_MS);
     const entry: LogEntry = {
-      message: 'Entry',
-      context: logContext,
+      message: 'Request',
+      context: sanitizeObject(logContext, SENSITIVE_HEADERS),
       level: 'info',
-      tags: ['ENTRY'],
+      tags: ['REQUEST'],
       timestamp: new Date().toISOString(),
     };
     this.logger.log(JSON.stringify(entry));
@@ -134,22 +151,38 @@ export class LoggingInterceptor implements NestInterceptor {
       tap(() => {
         clearTimeout(timeoutId);
         const ms = Date.now() - now;
+        logContext.processingTimeMs = ms;
+        // Re-read cache status from response headers (in case it was set after entry)
+        let cacheStatus: string | undefined = undefined;
+        if (typeof response.getHeader === 'function') {
+          const val = response.getHeader('x-idempotency-status');
+          if (typeof val === 'string') cacheStatus = val;
+        }
+        if (
+          !cacheStatus &&
+          typeof headers['x-idempotency-status'] === 'string'
+        ) {
+          cacheStatus = headers['x-idempotency-status'];
+        }
+        logContext.cacheStatus = cacheStatus ?? 'None';
         if (timedOut) {
           const entry: LogEntry = {
             message: 'Exit after timeout',
-            context: logContext,
+            context: sanitizeObject(logContext, SENSITIVE_HEADERS),
             level: 'warn',
             tags: ['TIMEDOUT'],
             timestamp: new Date().toISOString(),
+            processingTimeMs: logContext.processingTimeMs,
           };
           this.logger.warn(JSON.stringify(entry));
         } else {
           const entry: LogEntry = {
-            message: 'Exit',
-            context: logContext,
+            message: 'Response',
+            context: sanitizeObject(logContext, SENSITIVE_HEADERS),
             level: 'info',
             tags: ['SUCCESS'],
             timestamp: new Date().toISOString(),
+            processingTimeMs: logContext.processingTimeMs,
           };
           this.logger.log(JSON.stringify(entry));
         }
@@ -157,12 +190,26 @@ export class LoggingInterceptor implements NestInterceptor {
       catchError((err) => {
         clearTimeout(timeoutId);
         const ms = Date.now() - now;
+        logContext.processingTimeMs = ms;
+        let cacheStatus: string | undefined = undefined;
+        if (typeof response.getHeader === 'function') {
+          const val = response.getHeader('x-idempotency-status');
+          if (typeof val === 'string') cacheStatus = val;
+        }
+        if (
+          !cacheStatus &&
+          typeof headers['x-idempotency-status'] === 'string'
+        ) {
+          cacheStatus = headers['x-idempotency-status'];
+        }
+        logContext.cacheStatus = cacheStatus ?? 'None';
         const entry: LogEntry = {
           message: 'Error',
-          context: logContext,
+          context: sanitizeObject(logContext, SENSITIVE_HEADERS),
           level: 'error',
           tags: ['FAILED'],
           timestamp: new Date().toISOString(),
+          processingTimeMs: logContext.processingTimeMs,
           trace: {
             error: err instanceof Error ? err.message : String(err),
             traceId,
