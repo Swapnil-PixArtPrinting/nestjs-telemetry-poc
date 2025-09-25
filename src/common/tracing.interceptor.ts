@@ -19,7 +19,6 @@ export class TracingInterceptor implements NestInterceptor {
     const tracingId =
       (request.headers && request.headers[TRACING_HEADER]) || '';
     (request as any).tracingId = tracingId;
-    this.logger.log(`Tracing ID came from Nginx: ${tracingId}`);
     return next.handle().pipe(
       tap(() => {
         // Optionally, add tracingId to response headers or logs

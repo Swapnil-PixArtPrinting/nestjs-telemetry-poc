@@ -95,3 +95,8 @@ flowchart TD
 
 ---
 
+### TODO (24th September 2025)
+
+- Make sure nginx config logging format consistent with laravel app. Like Workspace, workspace env, hostname, request id (New to add) etc. Also it should not log twice.
+- Use fastest hash algorithm for generating idempotency key if not provided.
+- Remove cache data after first successful response or keep 5 min expiry.
